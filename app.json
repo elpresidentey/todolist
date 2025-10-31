@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "TODO",
+    "slug": "todo-app",
+    "scheme": "todoapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.hng.todoapp"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hng.todoapp"
+    },
+    "plugins": [],
+    "extra": {
+      "eas": {
+        "projectId": "3a2e5f33-b3e7-4aa1-b92c-5719564dc47d"
+      }
+    }
+  }
+}
