@@ -4,10 +4,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from './ThemeProvider';
 
 export function ThemeToggle() {
-	const { themeName, theme, toggle } = useTheme();
+	const { themeName, toggle } = useTheme();
 	return (
 		<Pressable onPress={toggle} accessibilityRole="button" accessibilityLabel="Toggle theme">
-			<Ionicons name={themeName === 'dark' ? 'moon' : 'sunny'} size={24} color={theme.text} />
+			<Ionicons 
+				name={themeName === 'dark' ? 'sunny' : 'moon'} 
+				size={24} 
+				color="white" 
+			/>
 		</Pressable>
 	);
 }

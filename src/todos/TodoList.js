@@ -1,176 +1,439 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable } from 'react-native';
-import DraggableFlatList from 'react-native-draggable-flatlist';
+import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
-import { useMutation, useQuery } from 'convex/react';
+import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
-import { convex as convexClient } from '../convex/client';
+import { AddTodoModal } from './AddTodoModal';
+import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-// NOTE: For offline demo, we keep local state. When EXPO_PUBLIC_CONVEX_URL is provided,
-// wire these methods to Convex queries/mutations instead.
-
-export function TodoList({ search }) {
+export function TodoList({ search, newTodo, onClearNewTodo }) {
 	const { theme } = useTheme();
-	const [items, setItems] = useState([
-		{ id: '1', title: 'Jog around the park 3x', completed: false },
-		{ id: '2', title: '10 minutes meditation', completed: false },
-		{ id: '3', title: 'Read for 1 hour', completed: false }
-	]);
-	const [newTitle, setNewTitle] = useState('');
 	const [filter, setFilter] = useState('all');
+	const [editingTodo, setEditingTodo] = useState(null);
+	const [showAddModal, setShowAddModal] = useState(false);
 
-	// Convex hooks (only usable when provider/client is available)
-	const remoteList = convexClient ? useQuery(api.todos.listTodos, { search, filter }) : undefined;
-	const create = convexClient ? useMutation(api.todos.createTodo) : null;
-	const update = convexClient ? useMutation(api.todos.updateTodo) : null;
-	const removeMutation = convexClient ? useMutation(api.todos.deleteTodo) : null;
-	const reorderMutation = convexClient ? useMutation(api.todos.reorder) : null;
+	// Convex hooks
+	const todos = useQuery(api.todos.listTodos, { search, filter }) || [];
+	const createTodo = useMutation(api.todos.createTodo);
+	const updateTodo = useMutation(api.todos.updateTodo);
+	const deleteTodo = useMutation(api.todos.deleteTodo);
+	const reorderTodos = useMutation(api.todos.reorder);
 
-	const sourceItems = remoteList ?? items;
+	const sourceItems = todos;
 
 	const filtered = useMemo(() => {
 		const q = search?.toLowerCase?.() || '';
-		return sourceItems.filter(i => {
+		let result = sourceItems.filter(i => {
 			const title = (i.title || '').toLowerCase();
-			const matches = title.includes(q);
+			const description = (i.description || '').toLowerCase();
+			const matches = title.includes(q) || description.includes(q);
 			if (filter === 'active') return matches && !i.completed;
 			if (filter === 'completed') return matches && i.completed;
 			return matches;
 		});
+
+		// Sort by completion status, then by due date, then by order/creation
+		return result.sort((a, b) => {
+			if (a.completed !== b.completed) {
+				return a.completed ? 1 : -1;
+			}
+			if (a.dueDate && b.dueDate) {
+				return a.dueDate - b.dueDate;
+			}
+			if (a.dueDate && !b.dueDate) return -1;
+			if (!a.dueDate && b.dueDate) return 1;
+			return (a.order || 0) - (b.order || 0);
+		});
 	}, [sourceItems, search, filter]);
 
-	async function addTodo() {
-		if (!newTitle.trim()) return;
-		const title = newTitle.trim();
-		if (create) {
-			await create({ title });
-		} else {
-			setItems(prev => [{ id: Date.now().toString(), title, completed: false }, ...prev]);
+	const handleSaveTodo = async (todoData) => {
+		try {
+			if (editingTodo) {
+				// Update existing todo
+				await updateTodo({ 
+					id: editingTodo._id,
+					...todoData 
+				});
+				setEditingTodo(null);
+			} else {
+				// Create new todo
+				await createTodo(todoData);
+			}
+		} catch (error) {
+			Alert.alert('Error', 'Failed to save todo. Please try again.');
 		}
-		setNewTitle('');
+	};
+
+	const handleToggleTodo = async (id) => {
+		try {
+			const todo = sourceItems.find(t => t._id === id);
+			if (todo) {
+				await updateTodo({ 
+					id: id,
+					completed: !todo.completed 
+				});
+			}
+		} catch (error) {
+			Alert.alert('Error', 'Failed to update todo. Please try again.');
+		}
+	};
+
+	const handleDeleteTodo = async (id) => {
+		try {
+			await deleteTodo({ id });
+		} catch (error) {
+			Alert.alert('Error', 'Failed to delete todo. Please try again.');
+		}
+	};
+
+	const handleEditTodo = (todo) => {
+		setEditingTodo(todo);
+		setShowAddModal(true);
+	};
+
+	const handleClearCompleted = async () => {
+		const completedTodos = sourceItems.filter(t => t.completed);
+		if (completedTodos.length === 0) return;
+
+		Alert.alert(
+			'Clear Completed',
+			`Delete ${completedTodos.length} completed todo${completedTodos.length > 1 ? 's' : ''}?`,
+			[
+				{ text: 'Cancel', style: 'cancel' },
+				{ 
+					text: 'Delete', 
+					style: 'destructive', 
+					onPress: async () => {
+						try {
+							await Promise.all(
+								completedTodos.map(t => deleteTodo({ id: t._id }))
+							);
+						} catch (error) {
+							Alert.alert('Error', 'Failed to clear completed todos.');
+						}
+					}
+				}
+			]
+		);
+	};
+
+	const addTodoFromInput = async () => {
+		if (newTodo && newTodo.trim()) {
+			const todoData = { title: newTodo.trim() };
+			await handleSaveTodo(todoData);
+			onClearNewTodo();
+		}
+	};
+
+	const handleDragEnd = async ({ data }) => {
+		try {
+			const orderedIds = data.map(item => item._id);
+			await reorderTodos({ orderedIds });
+		} catch (error) {
+			Alert.alert('Error', 'Failed to reorder todos.');
+		}
+	};
+
+	// Show loading state while todos are being fetched
+	if (todos === undefined) {
+		return (
+			<View style={[styles.container, styles.centerContent]}>
+				<ActivityIndicator size="large" color={theme.primary} />
+			</View>
+		);
 	}
 
-	async function toggle(id) {
-		if (update) {
-			const current = sourceItems.find(t => t._id ? t._id === id : t.id === id);
-			const convexId = current?._id || id; // when from Convex, docs have _id
-			await update({ id: convexId, completed: !current?.completed });
-		} else {
-			setItems(prev => prev.map(t => (t.id === id ? { ...t, completed: !t.completed } : t)));
-		}
-	}
-
-	async function remove(id) {
-		if (removeMutation) {
-			const current = sourceItems.find(t => t._id ? t._id === id : t.id === id);
-			await removeMutation({ id: current?._id || id });
-		} else {
-			setItems(prev => prev.filter(t => t.id !== id));
-		}
-	}
+	const renderTodoItem = ({ item, drag, isActive }) => (
+		<ScaleDecorator>
+			<Pressable
+				onLongPress={drag}
+				disabled={isActive}
+				style={[
+					styles.todoRow,
+					isActive && { backgroundColor: theme.background }
+				]}
+			>
+				<Pressable onPress={() => handleToggleTodo(item._id)}>
+					<Ionicons 
+						name={item.completed ? 'checkmark-circle' : 'ellipse-outline'} 
+						size={24} 
+						color={theme.primary} 
+					/>
+				</Pressable>
+				<Pressable 
+					onPress={() => handleEditTodo(item)}
+					style={styles.todoTextContainer}
+				>
+					<Text style={[
+						styles.todoText, 
+						{ 
+							color: item.completed ? theme.mutedText : theme.text,
+							textDecorationLine: item.completed ? 'line-through' : 'none'
+						}
+					]}>
+						{item.title}
+					</Text>
+					{item.description && (
+						<Text style={[styles.todoDescription, { color: theme.mutedText }]} numberOfLines={1}>
+							{item.description}
+						</Text>
+					)}
+					{item.dueDate && (
+						<Text style={[styles.todoDueDate, { color: theme.mutedText }]}>
+							Due: {new Date(item.dueDate).toLocaleDateString()}
+						</Text>
+					)}
+				</Pressable>
+				<Pressable onPress={() => handleDeleteTodo(item._id)}>
+					<Ionicons name="close" size={20} color={theme.mutedText} />
+				</Pressable>
+			</Pressable>
+		</ScaleDecorator>
+	);
 
 	return (
-		<View style={{ flex: 1, marginTop: 16 }}>
-			<View style={[styles.card, { backgroundColor: theme.card, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 }]}> 
-				<TextInput
-					value={newTitle}
-					onChangeText={setNewTitle}
-					placeholder="Create a new todo..."
-					placeholderTextColor={theme.mutedText}
-					style={[styles.input, { color: theme.text }]}
-					onSubmitEditing={addTodo}
-				/>
-			</View>
-
-			<View style={[styles.card, { backgroundColor: theme.card, padding: 0, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 8 }, elevation: 8 }]}> 
-				<DraggableFlatList
-					data={filtered}
-					keyExtractor={(item) => (item._id ?? item.id)}
-					renderItem={({ item, drag, isActive }) => (
-						<View style={[styles.row, { backgroundColor: theme.card }]}> 
-						<Pressable onPress={() => toggle(item._id ?? item.id)} accessibilityRole="checkbox" accessibilityState={{ checked: item.completed }}>
-								<Ionicons name={item.completed ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={theme.primary} />
-							</Pressable>
-							<Text style={[styles.title, { color: item.completed ? theme.mutedText : theme.text, textDecorationLine: item.completed ? 'line-through' : 'none' }]}>
-								{item.title}
-							</Text>
-							<View style={{ flexDirection: 'row', gap: 12 }}>
-								<Pressable onLongPress={drag} accessible accessibilityLabel="Reorder" accessibilityHint="Long press and drag to reorder">
-									<Ionicons name="reorder-three" size={22} color={theme.mutedText} />
-								</Pressable>
-								<Pressable onPress={() => remove(item._id ?? item.id)} accessibilityRole="button" accessibilityLabel="Delete todo">
-									<Ionicons name="close" size={20} color={theme.mutedText} />
-								</Pressable>
-							</View>
-						</View>
-					)}
-					onDragEnd={async ({ data }) => {
-						if (reorderMutation) {
-							const orderedIds = data.map(d => d._id);
-							await reorderMutation({ orderedIds });
-						} else {
-							setItems(data);
-						}
-					}}
-					ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: theme.divider }} />}
-					contentContainerStyle={{ paddingBottom: 100 }}
-				/>
-				<View style={[styles.footer]}> 
-					<Text style={{ color: theme.mutedText }}>{sourceItems.filter(i => !i.completed).length} items left</Text>
-					<View style={{ flexDirection: 'row', gap: 16 }}>
-						<FooterButton label="All" active={filter==='all'} onPress={() => setFilter('all')} />
-						<FooterButton label="Active" active={filter==='active'} onPress={() => setFilter('active')} />
-						<FooterButton label="Completed" active={filter==='completed'} onPress={() => setFilter('completed')} />
-					</View>
-					<Pressable onPress={async () => {
-						if (removeMutation && sourceItems.some(i => i.completed)) {
-							// batch delete completed
-							for (const t of sourceItems) {
-								if (t.completed) await removeMutation({ id: t._id });
-							}
-						} else {
-							setItems(prev => prev.filter(i => !i.completed));
-						}
-					}}>
-						<Text style={{ color: theme.mutedText }}>Clear Completed</Text>
+		<GestureHandlerRootView style={styles.container}>
+			{/* Current Todo Being Typed */}
+			{newTodo && newTodo.trim() && (
+				<View style={[styles.currentTodoCard, { backgroundColor: theme.card }]}>
+					<Pressable 
+						onPress={addTodoFromInput}
+						style={styles.currentTodoRow}
+					>
+						<Ionicons name="ellipse-outline" size={24} color={theme.primary} />
+						<Text style={[styles.currentTodoText, { color: theme.text }]}>
+							{newTodo}
+						</Text>
+						<Pressable onPress={onClearNewTodo}>
+							<Ionicons name="close" size={20} color={theme.mutedText} />
+						</Pressable>
 					</Pressable>
 				</View>
+			)}
+
+			{/* Todo List */}
+			<View style={[styles.listContainer, { backgroundColor: theme.card }]}>
+				{filtered.length === 0 ? (
+					<View style={styles.emptyState}>
+						<Ionicons name="checkbox-outline" size={64} color={theme.mutedText} />
+						<Text style={[styles.emptyText, { color: theme.mutedText }]}>
+							{filter === 'completed' ? 'No completed todos' : 
+							 filter === 'active' ? 'No active todos' : 
+							 'No todos yet. Create one!'}
+						</Text>
+					</View>
+				) : (
+					<DraggableFlatList
+						data={filtered}
+						renderItem={renderTodoItem}
+						keyExtractor={item => item._id}
+						onDragEnd={handleDragEnd}
+						ItemSeparatorComponent={() => (
+							<View style={[styles.separator, { backgroundColor: theme.divider }]} />
+						)}
+					/>
+				)}
+
+				{/* Footer */}
+				<View style={styles.footer}>
+					<Text style={[styles.footerText, { color: theme.mutedText }]}>
+						{sourceItems.filter(i => !i.completed).length} items left
+					</Text>
+					
+					<View style={styles.filterButtons}>
+						<FilterButton 
+							label="All" 
+							active={filter === 'all'} 
+							onPress={() => setFilter('all')} 
+						/>
+						<FilterButton 
+							label="Active" 
+							active={filter === 'active'} 
+							onPress={() => setFilter('active')} 
+						/>
+						<FilterButton 
+							label="Completed" 
+							active={filter === 'completed'} 
+							onPress={() => setFilter('completed')} 
+						/>
+					</View>
+
+					{sourceItems.some(i => i.completed) && (
+						<Pressable onPress={handleClearCompleted}>
+							<Text style={[styles.clearButton, { color: theme.mutedText }]}>
+								Clear Completed
+							</Text>
+						</Pressable>
+					)}
+				</View>
 			</View>
-		</View>
+
+			{/* Drag and drop hint */}
+			<Text style={[styles.dragHint, { color: theme.mutedText }]}>
+				Long press and drag to reorder todos
+			</Text>
+
+			{/* Floating Add Button */}
+			<Pressable 
+				style={[styles.fab, { backgroundColor: theme.primary }]}
+				onPress={() => setShowAddModal(true)}
+			>
+				<Ionicons name="add" size={28} color="white" />
+			</Pressable>
+
+			{/* Add/Edit Todo Modal */}
+			<AddTodoModal
+				visible={showAddModal}
+				onClose={() => {
+					setShowAddModal(false);
+					setEditingTodo(null);
+				}}
+				onSave={handleSaveTodo}
+				editingTodo={editingTodo}
+			/>
+		</GestureHandlerRootView>
 	);
 }
 
-function FooterButton({ label, active, onPress }) {
+function FilterButton({ label, active, onPress }) {
 	const { theme } = useTheme();
 	return (
 		<Pressable onPress={onPress}>
-			<Text style={{ color: active ? theme.primary : theme.mutedText, fontWeight: active ? '700' : '500' }}>{label}</Text>
+			<Text style={[
+				styles.filterButtonText, 
+				{ color: active ? theme.primary : theme.mutedText }
+			]}>
+				{label}
+			</Text>
 		</Pressable>
 	);
 }
 
 const styles = StyleSheet.create({
-	card: {
-		marginHorizontal: 24,
-		borderRadius: 14,
-		padding: 16,
-		marginBottom: 16
+	container: {
+		flex: 1,
+		paddingHorizontal: 24,
 	},
-	input: { fontSize: 16, fontWeight: '600' },
-	row: {
+	centerContent: {
+		justifyContent: 'center',
+		alignItems: 'center',
+	},
+	currentTodoCard: {
+		borderRadius: 8,
+		marginBottom: 16,
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 4,
+		elevation: 3,
+	},
+	currentTodoRow: {
 		flexDirection: 'row',
 		alignItems: 'center',
-		gap: 12,
-		paddingHorizontal: 16,
-		height: 58
+		paddingHorizontal: 20,
+		paddingVertical: 16,
+		gap: 16,
 	},
-	title: { flex: 1, fontSize: 16 },
+	currentTodoText: {
+		flex: 1,
+		fontSize: 16,
+		fontWeight: '400',
+	},
+	listContainer: {
+		borderRadius: 8,
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 8,
+		elevation: 4,
+		marginBottom: 80,
+		minHeight: 300,
+	},
+	emptyState: {
+		paddingVertical: 60,
+		alignItems: 'center',
+		justifyContent: 'center',
+	},
+	emptyText: {
+		fontSize: 16,
+		fontWeight: '400',
+		marginTop: 16,
+	},
+	todoRow: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		paddingHorizontal: 20,
+		paddingVertical: 16,
+		gap: 16,
+	},
+	todoTextContainer: {
+		flex: 1,
+	},
+	todoText: {
+		fontSize: 16,
+		fontWeight: '400',
+	},
+	todoDescription: {
+		fontSize: 14,
+		fontWeight: '400',
+		marginTop: 4,
+	},
+	todoDueDate: {
+		fontSize: 12,
+		fontWeight: '400',
+		marginTop: 4,
+	},
+	separator: {
+		height: 1,
+		marginHorizontal: 20,
+	},
 	footer: {
 		flexDirection: 'row',
 		justifyContent: 'space-between',
 		alignItems: 'center',
-		padding: 16
-	}
+		paddingHorizontal: 20,
+		paddingVertical: 16,
+		borderTopWidth: 1,
+		borderTopColor: 'rgba(0,0,0,0.05)',
+	},
+	footerText: {
+		fontSize: 14,
+		fontWeight: '400',
+	},
+	filterButtons: {
+		flexDirection: 'row',
+		gap: 16,
+	},
+	filterButtonText: {
+		fontSize: 14,
+		fontWeight: '500',
+	},
+	clearButton: {
+		fontSize: 14,
+		fontWeight: '400',
+	},
+	dragHint: {
+		textAlign: 'center',
+		fontSize: 14,
+		fontWeight: '400',
+		marginTop: 16,
+	},
+	fab: {
+		position: 'absolute',
+		right: 40,
+		bottom: 40,
+		width: 56,
+		height: 56,
+		borderRadius: 28,
+		justifyContent: 'center',
+		alignItems: 'center',
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 4 },
+		shadowOpacity: 0.3,
+		shadowRadius: 8,
+		elevation: 8,
+	},
 });
 

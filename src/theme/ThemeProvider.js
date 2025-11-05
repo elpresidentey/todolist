@@ -8,21 +8,27 @@ const STORAGE_KEY = 'todoapp.theme';
 const light = {
 	name: 'light',
 	background: '#F6F7FB',
+	gradientStart: '#A855F7',
+	gradientEnd: '#3B82F6',
 	card: '#FFFFFF',
 	text: '#1F2340',
 	mutedText: '#8B8FA3',
 	primary: '#6D5DF6',
-	divider: 'rgba(0,0,0,0.08)'
+	divider: 'rgba(0,0,0,0.08)',
+	overlay: 'rgba(255,255,255,0.9)'
 };
 
 const dark = {
 	name: 'dark',
 	background: '#0F1221',
-	card: '#1A1E33',
+	gradientStart: '#7C3AED',
+	gradientEnd: '#1E40AF',
+	card: 'rgba(26,30,51,0.8)',
 	text: '#E8EAED',
 	mutedText: '#9AA0B4',
 	primary: '#7C87FF',
-	divider: 'rgba(255,255,255,0.08)'
+	divider: 'rgba(255,255,255,0.08)',
+	overlay: 'rgba(15,18,33,0.9)'
 };
 
 const ThemeContext = createContext(null);

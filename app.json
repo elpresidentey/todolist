@@ -13,10 +13,20 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.hng.todoapp"
     },
-    "plugins": [],
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ]
+    ],
     "extra": {
       "eas": {
-        "projectId": "3a2e5f33-b3e7-4aa1-b92c-5719564dc47d"
+        "projectId": "2cd0cef4-24a6-4314-882f-b9a5ceb94617"
       }
     }
   }
