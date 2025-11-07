@@ -10,7 +10,13 @@
       "bundler": "webpack"
     },
     "android": {
-      "package": "com.hng.todoapp"
+      "package": "com.hng.todoapp",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [],
+      "versionCode": 1
     },
     "ios": {
       "supportsTablet": true,
