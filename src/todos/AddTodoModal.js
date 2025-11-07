@@ -32,9 +32,38 @@ export function AddTodoModal({ visible, onClose, onSave, editingTodo = null }) {
 		}
 	}, [editingTodo, visible]);
 
+	const validateForm = () => {
+		const errors = [];
+		const trimmedTitle = title.trim();
+
+		if (!trimmedTitle) {
+			errors.push('Please enter a title for your todo');
+		} else if (trimmedTitle.length < 3) {
+			errors.push('Title must be at least 3 characters long');
+		} else if (trimmedTitle.length > 100) {
+			errors.push('Title must be less than 100 characters');
+		}
+
+		if (description && description.trim().length > 500) {
+			errors.push('Description must be less than 500 characters');
+		}
+
+		if (dueDate && dueDate < new Date().setHours(0, 0, 0, 0)) {
+			errors.push('Due date cannot be in the past');
+		}
+
+		return errors;
+	};
+
 	const handleSave = () => {
-		if (!title.trim()) {
-			Alert.alert('Error', 'Please enter a title for your todo');
+		const errors = validateForm();
+		
+		if (errors.length > 0) {
+			Alert.alert(
+				'Validation Error',
+				errors.join('\n'),
+				[{ text: 'OK' }]
+			);
 			return;
 		}
 

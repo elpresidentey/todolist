@@ -49,20 +49,44 @@ export function TodoList({ search, newTodo, onClearNewTodo }) {
 	}, [sourceItems, search, filter]);
 
 	const handleSaveTodo = async (todoData) => {
-		try {
-			if (editingTodo) {
-				// Update existing todo
-				await updateTodo({ 
-					id: editingTodo._id,
-					...todoData 
-				});
-				setEditingTodo(null);
-			} else {
-				// Create new todo
-				await createTodo(todoData);
+		const maxRetries = 3;
+		let attempts = 0;
+
+		while (attempts < maxRetries) {
+			try {
+				if (editingTodo) {
+					// Update existing todo
+					await updateTodo({ 
+						id: editingTodo._id,
+						...todoData 
+					});
+					setEditingTodo(null);
+					return;
+				} else {
+					// Create new todo
+					await createTodo(todoData);
+					return;
+				}
+			} catch (error) {
+				attempts++;
+				if (attempts === maxRetries) {
+					Alert.alert(
+						'Error',
+						'Failed to save todo after multiple attempts. Please check your connection and try again.',
+						[
+							{ text: 'Cancel', style: 'cancel' },
+							{ 
+								text: 'Retry', 
+								onPress: () => handleSaveTodo(todoData),
+								style: 'default'
+							}
+						]
+					);
+				} else {
+					// Wait briefly before retrying
+					await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+				}
 			}
-		} catch (error) {
-			Alert.alert('Error', 'Failed to save todo. Please try again.');
 		}
 	};
 
@@ -155,7 +179,12 @@ export function TodoList({ search, newTodo, onClearNewTodo }) {
 					isActive && { backgroundColor: theme.background }
 				]}
 			>
-				<Pressable onPress={() => handleToggleTodo(item._id)}>
+				<Pressable 
+					onPress={() => handleToggleTodo(item._id)}
+					accessibilityRole="checkbox"
+					accessibilityState={{ checked: item.completed }}
+					accessibilityLabel={`Mark ${item.title} as ${item.completed ? 'incomplete' : 'complete'}`}
+				>
 					<Ionicons 
 						name={item.completed ? 'checkmark-circle' : 'ellipse-outline'} 
 						size={24} 
@@ -165,6 +194,9 @@ export function TodoList({ search, newTodo, onClearNewTodo }) {
 				<Pressable 
 					onPress={() => handleEditTodo(item)}
 					style={styles.todoTextContainer}
+					accessibilityRole="button"
+					accessibilityLabel={`Edit todo: ${item.title}`}
+					accessibilityHint="Double tap to edit this todo item"
 				>
 					<Text style={[
 						styles.todoText, 
@@ -279,6 +311,9 @@ export function TodoList({ search, newTodo, onClearNewTodo }) {
 			<Pressable 
 				style={[styles.fab, { backgroundColor: theme.primary }]}
 				onPress={() => setShowAddModal(true)}
+				accessibilityRole="button"
+				accessibilityLabel="Add new todo"
+				accessibilityHint="Opens a form to create a new todo item"
 			>
 				<Ionicons name="add" size={28} color="white" />
 			</Pressable>
@@ -300,10 +335,18 @@ export function TodoList({ search, newTodo, onClearNewTodo }) {
 function FilterButton({ label, active, onPress }) {
 	const { theme } = useTheme();
 	return (
-		<Pressable onPress={onPress}>
+		<Pressable 
+			onPress={onPress}
+			accessibilityRole="tab"
+			accessibilityState={{ selected: active }}
+			accessibilityLabel={`${label} todos filter${active ? ', currently selected' : ''}`}
+		>
 			<Text style={[
 				styles.filterButtonText, 
-				{ color: active ? theme.primary : theme.mutedText }
+				{ 
+					color: active ? theme.primary : theme.mutedText,
+					fontWeight: active ? '600' : '400'
+				}
 			]}>
 				{label}
 			</Text>

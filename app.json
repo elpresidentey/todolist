@@ -7,7 +7,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "web": {
-      "bundler": "metro"
+      "bundler": "webpack"
     },
     "android": {
       "package": "com.hng.todoapp"
