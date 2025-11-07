@@ -11,10 +11,6 @@
     },
     "android": {
       "package": "com.hng.todoapp",
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
       "permissions": [],
       "versionCode": 1
     },
